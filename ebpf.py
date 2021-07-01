@@ -188,6 +188,7 @@ class EBPFProc(processor_t):
         except DecodingError:
             return 0
 
+    # XXX: NOTE: we never set offb for any operands, should we?
     def _ana(self, insn):
         self.opcode = insn.get_next_byte()
         registers = insn.get_next_byte()
@@ -202,13 +203,12 @@ class EBPFProc(processor_t):
             
         self.imm = insn.get_next_dword()
         
+        # special case for longer (longest) instruction
         if self.opcode == 0x18:
             insn.get_next_dword() # consume
             imm2 = insn.get_next_dword()
             self.imm += imm2 << 32
 
-        
-        # XXX may need to refactor?
         insn.itype = self.opcode
 
         if self.opcode not in self.OPCODES:
@@ -321,11 +321,12 @@ class EBPFProc(processor_t):
 
         if Feature & CF_JUMP:
             dst_op_index = 0 if insn.itype == 0x5 else 2
-            print("[ev_emu_insn] jump detected: 0x{:x} -> 0x{:x}".format(insn[dst_op_index].offb, insn[dst_op_index].addr))
+            #print("[ev_emu_insn] jump detected: 0x{:x} -> 0x{:x}".format(insn[dst_op_index].offb, insn[dst_op_index].addr))
             insn.add_cref(insn[dst_op_index].offb, insn[dst_op_index].addr, fl_JN)
             remember_problem(cvar.PR_JUMP, insn.ea) # PR_JUMP ignored?
             # add cref here?
 
+        # TODO: see what stack emulation we need to do when operating on/with r10
         if insn[0].type == o_displ or insn[1].type == o_displ:
             op_ind = 0 if insn[0].type == o_displ else 1
             insn.create_stkvar(insn[op_ind], insn[op_ind].value, 1)
@@ -356,6 +357,10 @@ class EBPFProc(processor_t):
         ft = cmd.get_canon_feature()
         buf = ctx.outbuf
         ctx.out_mnem(15)
+
+        print(f"[ev_out_insn] ea: {cmd.ea}")
+        # TOOD: can we output helper name for call instructions here?
+        # Or is that best done in a different way/elsewhere with IDA's api?
         
         if ft & CF_USE1:
             ctx.out_one_operand(0)
