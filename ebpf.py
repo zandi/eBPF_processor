@@ -204,95 +204,95 @@ class EBPFProc(processor_t):
     
     def _ana_reg_imm(self, insn):
         insn[0].type = o_reg
-        insn[0].dtyp = dt_dword
+        insn[0].dtype = dt_dword
         insn[0].reg = self.dst
 
         insn[1].type = o_imm
         if self.opcode == 0x18:
-            insn[1].dtyp = dt_qword
+            insn[1].dtype = dt_qword
         else:
-            insn[1].dtyp = dt_dword
+            insn[1].dtype = dt_dword
             
         insn[1].value = self.imm
         
     def _ana_1reg(self, insn):
         insn[0].type = o_reg
-        insn[0].dtyp = dt_dword
+        insn[0].dtype = dt_dword
         insn[0].reg = self.dst
 
     def _ana_2regs(self, insn):
         insn[0].type = o_reg
-        insn[0].dtyp = dt_dword
+        insn[0].dtype = dt_dword
         insn[0].reg = self.dst
         
         insn[1].type = o_reg
-        insn[1].dtyp = dt_dword
+        insn[1].dtype = dt_dword
         insn[1].reg = self.src
 
     def _ana_call(self, insn):
         insn[0].type = o_imm
         insn[0].value = self.imm
-        insn[0].dtyp = dt_dword
+        insn[0].dtype = dt_dword
 
     def _ana_jmp(self, insn):
         insn[0].type = o_near
         insn[0].addr = 8*self.off + insn.ea + 8
-        insn[0].dtyp = dt_dword
+        insn[0].dtype = dt_dword
 
     def _ana_cond_jmp_reg_imm(self, insn):
         insn[0].type = o_reg
-        insn[0].dtyp = dt_dword
+        insn[0].dtype = dt_dword
         insn[0].reg = self.dst
 
         insn[1].type = o_imm
         insn[1].value = self.imm
-        insn[1].dtyp = dt_dword
+        insn[1].dtype = dt_dword
         
         insn[2].type = o_near
         insn[2].addr = 8 * self.off + insn.ea + 8
-        insn[2].dtyp = dt_dword
+        insn[2].dtype = dt_dword
 
     def _ana_cond_jmp_reg_reg(self, insn):
         insn[0].type = o_reg
-        insn[0].dtyp = dt_dword
+        insn[0].dtype = dt_dword
         insn[0].reg = self.dst
 
         insn[1].type = o_reg
-        insn[1].dtyp = dt_dword
+        insn[1].dtype = dt_dword
         insn[1].reg = self.src
 
         insn[2].type = o_near
         insn[2].addr = 8 * self.off + insn.ea + 8
-        insn[2].dtyp = dt_dword
+        insn[2].dtype = dt_dword
 
     def _ana_regdisp_reg(self, insn):
         insn[0].type = o_displ
-        insn[0].dtyp = dt_dword
+        insn[0].dtype = dt_dword
         insn[0].value = self.off
         insn[0].phrase = self.dst
 
         insn[1].type = o_reg
-        insn[1].dtyp = dt_dword
+        insn[1].dtype = dt_dword
         insn[1].reg = self.src
 
     def _ana_reg_regdisp(self, insn):
         insn[0].type = o_reg
-        insn[0].dtyp = dt_dword
+        insn[0].dtype = dt_dword
         insn[0].reg = self.dst
 
         insn[1].type = o_displ
-        insn[1].dtyp = dt_dword
+        insn[1].dtype = dt_dword
         insn[1].value = self.off
         insn[1].phrase = self.src
 
 
     def _ana_phrase_imm(self, insn):
         insn[0].type = o_reg
-        insn[0].dtyp = dt_dword
+        insn[0].dtype = dt_dword
         insn[0].reg = self.dst
         
         insn[1].type = o_phrase
-        insn[1].dtyp = dt_dword
+        insn[1].dtype = dt_dword
         insn[1].value = self.imm
 
 
@@ -351,27 +351,40 @@ class EBPFProc(processor_t):
     def ev_out_operand(self, ctx, op):
         if op.type == o_reg:
             ctx.out_register(self.reg_names[op.reg])
+
+        # TODO: handle signed immediate
         elif op.type == o_imm:
-            ctx.out_value(op, OOFW_IMM)
+            if op.dtype == dt_qword:
+                ctx.out_value(op, OOF_SIGNED|OOFW_IMM|OOFW_64)
+            elif op.dtype == dt_dword:
+                ctx.out_value(op, OOF_SIGNED|OOFW_IMM|OOFW_32)
+            else:
+                print(f"[ev_out_operand] immediate operand, unhandled dtype: {op.dtype:#8x}")
+                ctx.out_value(op, OOF_SIGNED|OOFW_IMM|OOFW_32) # TODO: improve default case/handle all cases
+
         elif op.type in [o_near, o_mem]:
             ok = ctx.out_name_expr(op, op.addr, BADADDR)
             if not ok:
-                # TODO: refactor this error case
+                # TODO: refactor this error case (when we hit it)
                 out_tagon(COLOR_ERROR)
                 OutLong(op.addr, 16)
                 out_tagoff(COLOR_ERROR)
                 QueueMark(Q_noName, insn.ea)
                 
+        # TODO: handle signed phrase immediate
         elif op.type == o_phrase:
+            print(f"[ev_out_operand] phrase dtype: {op.dtype}")
             ctx.out_symbol('[')
-            ctx.out_value(op, OOFW_IMM)
+            ctx.out_value(op, OOF_SIGNED|OOFW_IMM)
             ctx.out_symbol(']')
             
+        # TODO: handle signed displacement immediate
         elif op.type == o_displ:
+            print(f"[ev_out_operand] displacement dtype: {op.dtype}")
             ctx.out_symbol('[')
             ctx.out_register(self.reg_names[op.phrase])
             if op.value:
-                ctx.out_value(op, OOFS_NEEDSIGN|OOFW_IMM)
+                ctx.out_value(op, OOFS_NEEDSIGN|OOF_SIGNED|OOFW_IMM)
             ctx.out_symbol(']')
         else:
             return False
