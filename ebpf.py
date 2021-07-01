@@ -9,6 +9,26 @@
 from idaapi import *
 from idc import *
 
+# 'manually' crafted from include/uapi/linux/bpf.h header from kernel v4.20
+# will need to periodically update this as new helpers are added.
+#
+# run just the preprocessor (gcc -E) on the snippet defining the `bpf_func_id` enum,
+# then format the names into an array, preserving order (some search/replace in vim)
+# this makes the `helper_names` array, which we then use for everything else.
+# It's critical the order of names is not changed from how they appear in the processed
+# source, because enums assign integer values in order.
+
+helper_names = [ "unspec", "map_lookup_elem", "map_update_elem", "map_delete_elem", "probe_read", "ktime_get_ns", "trace_printk", "get_prandom_u32", "get_smp_processor_id", "skb_store_bytes", "l3_csum_replace", "l4_csum_replace", "tail_call", "clone_redirect", "get_current_pid_tgid", "get_current_uid_gid", "get_current_comm", "get_cgroup_classid", "skb_vlan_push", "skb_vlan_pop", "skb_get_tunnel_key", "skb_set_tunnel_key", "perf_event_read", "redirect", "get_route_realm", "perf_event_output", "skb_load_bytes", "get_stackid", "csum_diff", "skb_get_tunnel_opt", "skb_set_tunnel_opt", "skb_change_proto", "skb_change_type", "skb_under_cgroup", "get_hash_recalc", "get_current_task", "probe_write_user", "current_task_under_cgroup", "skb_change_tail", "skb_pull_data", "csum_update", "set_hash_invalid", "get_numa_node_id", "skb_change_head", "xdp_adjust_head", "probe_read_str", "get_socket_cookie", "get_socket_uid", "set_hash", "setsockopt", "skb_adjust_room", "redirect_map", "sk_redirect_map", "sock_map_update", "xdp_adjust_meta", "perf_event_read_value", "perf_prog_read_value", "getsockopt", "override_return", "sock_ops_cb_flags_set", "msg_redirect_map", "msg_apply_bytes", "msg_cork_bytes", "msg_pull_data", "bind", "xdp_adjust_tail", "skb_get_xfrm_state", "get_stack", "skb_load_bytes_relative", "fib_lookup", "sock_hash_update", "msg_redirect_hash", "sk_redirect_hash", "lwt_push_encap", "lwt_seg6_store_bytes", "lwt_seg6_adjust_srh", "lwt_seg6_action", "rc_repeat", "rc_keydown", "skb_cgroup_id", "get_current_cgroup_id", "get_local_storage", "sk_select_reuseport", "skb_ancestor_cgroup_id", "sk_lookup_tcp", "sk_lookup_udp", "sk_release", "map_push_elem", "map_pop_elem", "map_peek_elem", "msg_push_data", "__BPF_FUNC_MAX_ID"]
+helper_id_to_name = {i: helper_names[i] for i in range(len(helper_names))}
+
+def dump_helpers():
+    print("bpf helpers id -> name")
+    for k, v in helper_id_to_name.items():
+        print(f"{k} -> {v}")
+
+def lookup_helper(helper_id: int) -> str :
+    return helper_id_to_name[helper_id]
+
 class DecodingError(Exception):
     pass
 
@@ -319,7 +339,9 @@ class EBPFProc(processor_t):
         if Feature & CF_CALL:
             # call into eBPF helper
             # TODO: determine the difference between calling a helper, and calling another eBPF program
-            print("[ev_emu_insn] (0x{:x}) call offb: {} addr: {}".format(insn.ea, insn[0].offb, insn[0].addr))
+            helper_name = lookup_helper(insn[0].value)
+            print(f"[eb_emu_insn] call helper: {helper_name}")
+            #print("[ev_emu_insn] (0x{:x}) call offb: {} addr: {} value: {}".format(insn.ea, insn[0].offb, insn[0].addr, insn[0].value))
 
         # continue execution flow if not stop instruction, and not unconditional jump
         flow = (Feature & CF_STOP == 0) and not insn.itype == 0x5
