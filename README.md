@@ -1,10 +1,18 @@
 # eBPF IDA Proc
 
-This is an IDA Processor that can be used to disassemble eBPF bytecode. It was developed for a challenge. As such, it hasn't been tested with any other target than the crackme-esque filter I developed it for.
+This is an IDA Processor that can be used to disassemble eBPF bytecode. It was
+originally developed for a challenge, but since expanded and updated. It still
+needs testing against more eBPF ELF files and comparison with output from other
+tools like eBPF-supporting objdump, and bpftool.
+
+## Requirements
+
+Currently IDA 7.4 using Python3 is necessary.
 
 ## Author
 
-Clément Berthaux - clement (dot) berthaux (at) synacktiv (dot) com
+- Original author: Clément Berthaux - clement (dot) berthaux (at) synacktiv (dot) com
+- Fixes, Expansions & Updates: Michael Zandi - the (dot) zandi (at) gmail (dot) com
 
 ## Installation
 
