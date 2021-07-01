@@ -146,217 +146,233 @@ class EBPFProc(processor_t):
         Instructions = [{'name':x[0], 'feature':x[2]} for x in self.OPCODES.values()]
         self.inames = {v[0]:k for k,v in self.OPCODES.items()}
         self.instruc_end = 0xff
-        self.instruc = [({'name':self.OPCODES[i][0], 'feature':self.OPCODES[i][2]} if i in self.OPCODES else {'name':'unknown_opcode', 'feature':0}) for i in xrange(0xff)]
+        self.instruc = [({'name':self.OPCODES[i][0], 'feature':self.OPCODES[i][2]} if i in self.OPCODES else {'name':'unknown_opcode', 'feature':0}) for i in range(0xff)]
         
         # self.icode_return = 0x95
         
     def init_registers(self):
-        self.regNames = ['r0', 'r1', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7', 'r8', 'r9', 'r10', 'CS', 'DS']
+        self.reg_names = ['r0', 'r1', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7', 'r8', 'r9', 'r10', 'CS', 'DS']
 
-        self.regFirstSreg = 0
-        self.regLastSreg = 1
+        self.reg_cs = 0
+        self.reg_ds = 1
 
-        self.regCodeSreg = 0
-        self.regDataSreg = 1
+        self.reg_first_sreg = self.reg_cs
+        self.reg_last_sreg = self.reg_ds
 
-    def ana(self):        
+        self.reg_code_sreg = self.reg_cs
+        self.reg_data_sreg = self.reg_ds
+
+    def ev_ana_insn(self, insn):
         try:
-            return self._ana()
+            return self._ana(insn)
         except DecodingError:
             return 0
 
-    def _ana(self):
-        self.opcode = ua_next_byte()
-        registers = ua_next_byte()
+    def _ana(self, insn):
+        self.opcode = insn.get_next_byte()
+        registers = insn.get_next_byte()
 
         self.src = (registers >> 4) & 15
         self.dst = registers & 15
         
-        self.off = ua_next_word()
+        self.off = insn.get_next_word()
 
         # if self.off & 0x8000:
         #     self.off -= 0x10000
             
-        self.imm = ua_next_long()
+        self.imm = insn.get_next_dword()
         
         if self.opcode == 0x18:
-            ua_next_long()
-            imm2 = ua_next_long()
+            insn.get_next_dword() # consume
+            imm2 = insn.get_next_dword()
             self.imm += imm2 << 32
 
         
-        self.cmd.itype = self.opcode
+        # XXX may need to refactor?
+        insn.itype = self.opcode
 
         if self.opcode not in self.OPCODES:
             raise DecodingError("wuut")
 
-        self.OPCODES[self.opcode][1]()
+        self.OPCODES[self.opcode][1](insn)
         
-        return self.cmd.size
+        # XXX TODO: don't we need to set this size? Where is this getting set?
+        return insn.size
 
-    def _ana_nop(self):
+    def _ana_nop(self, insn):
         pass
     
-    def _ana_reg_imm(self):
-        self.cmd[0].type = o_reg
-        self.cmd[0].dtyp = dt_dword
-        self.cmd[0].reg = self.dst
+    def _ana_reg_imm(self, insn):
+        insn[0].type = o_reg
+        insn[0].dtyp = dt_dword
+        insn[0].reg = self.dst
 
-        self.cmd[1].type = o_imm
+        insn[1].type = o_imm
         if self.opcode == 0x18:
-            self.cmd[1].dtyp = dt_qword
+            insn[1].dtyp = dt_qword
         else:
-            self.cmd[1].dtyp = dt_dword
+            insn[1].dtyp = dt_dword
             
-        self.cmd[1].value = self.imm
+        insn[1].value = self.imm
         
-    def _ana_1reg(self):
-        self.cmd[0].type = o_reg
-        self.cmd[0].dtyp = dt_dword
-        self.cmd[0].reg = self.dst
+    def _ana_1reg(self, insn):
+        insn[0].type = o_reg
+        insn[0].dtyp = dt_dword
+        insn[0].reg = self.dst
 
-    def _ana_2regs(self):
-        self.cmd[0].type = o_reg
-        self.cmd[0].dtyp = dt_dword
-        self.cmd[0].reg = self.dst
+    def _ana_2regs(self, insn):
+        insn[0].type = o_reg
+        insn[0].dtyp = dt_dword
+        insn[0].reg = self.dst
         
-        self.cmd[1].type = o_reg
-        self.cmd[1].dtyp = dt_dword
-        self.cmd[1].reg = self.src
+        insn[1].type = o_reg
+        insn[1].dtyp = dt_dword
+        insn[1].reg = self.src
 
-    def _ana_call(self):
-        self.cmd[0].type = o_imm
-        self.cmd[0].value = self.imm
-        self.cmd[0].dtyp = dt_dword
+    def _ana_call(self, insn):
+        insn[0].type = o_imm
+        insn[0].value = self.imm
+        insn[0].dtyp = dt_dword
 
-    def _ana_jmp(self):
-        self.cmd[0].type = o_near
-        self.cmd[0].addr = 8*self.off + self.cmd.ea + 8
-        self.cmd[0].dtyp = dt_dword
+    def _ana_jmp(self, insn):
+        insn[0].type = o_near
+        insn[0].addr = 8*self.off + insn.ea + 8
+        insn[0].dtyp = dt_dword
 
-    def _ana_cond_jmp_reg_imm(self):
-        self.cmd[0].type = o_reg
-        self.cmd[0].dtyp = dt_dword
-        self.cmd[0].reg = self.dst
+    def _ana_cond_jmp_reg_imm(self, insn):
+        insn[0].type = o_reg
+        insn[0].dtyp = dt_dword
+        insn[0].reg = self.dst
 
-        self.cmd[1].type = o_imm
-        self.cmd[1].value = self.imm
-        self.cmd[1].dtyp = dt_dword
+        insn[1].type = o_imm
+        insn[1].value = self.imm
+        insn[1].dtyp = dt_dword
         
-        self.cmd[2].type = o_near
-        self.cmd[2].addr = 8 * self.off + self.cmd.ea + 8
-        self.cmd[2].dtyp = dt_dword
+        insn[2].type = o_near
+        insn[2].addr = 8 * self.off + insn.ea + 8
+        insn[2].dtyp = dt_dword
 
-    def _ana_cond_jmp_reg_reg(self):
-        self.cmd[0].type = o_reg
-        self.cmd[0].dtyp = dt_dword
-        self.cmd[0].reg = self.dst
+    def _ana_cond_jmp_reg_reg(self, insn):
+        insn[0].type = o_reg
+        insn[0].dtyp = dt_dword
+        insn[0].reg = self.dst
 
-        self.cmd[1].type = o_reg
-        self.cmd[1].dtyp = dt_dword
-        self.cmd[1].reg = self.src
+        insn[1].type = o_reg
+        insn[1].dtyp = dt_dword
+        insn[1].reg = self.src
 
-        self.cmd[2].type = o_near
-        self.cmd[2].addr = 8 * self.off + self.cmd.ea + 8
-        self.cmd[2].dtyp = dt_dword
+        insn[2].type = o_near
+        insn[2].addr = 8 * self.off + insn.ea + 8
+        insn[2].dtyp = dt_dword
 
-    def _ana_regdisp_reg(self):
-        self.cmd[0].type = o_displ
-        self.cmd[0].dtyp = dt_dword
-        self.cmd[0].value = self.off
-        self.cmd[0].phrase = self.dst
+    def _ana_regdisp_reg(self, insn):
+        insn[0].type = o_displ
+        insn[0].dtyp = dt_dword
+        insn[0].value = self.off
+        insn[0].phrase = self.dst
 
-        self.cmd[1].type = o_reg
-        self.cmd[1].dtyp = dt_dword
-        self.cmd[1].reg = self.src
+        insn[1].type = o_reg
+        insn[1].dtyp = dt_dword
+        insn[1].reg = self.src
 
-    def _ana_reg_regdisp(self):
-        self.cmd[0].type = o_reg
-        self.cmd[0].dtyp = dt_dword
-        self.cmd[0].reg = self.dst
+    def _ana_reg_regdisp(self, insn):
+        insn[0].type = o_reg
+        insn[0].dtyp = dt_dword
+        insn[0].reg = self.dst
 
-        self.cmd[1].type = o_displ
-        self.cmd[1].dtyp = dt_dword
-        self.cmd[1].value = self.off
-        self.cmd[1].phrase = self.src
+        insn[1].type = o_displ
+        insn[1].dtyp = dt_dword
+        insn[1].value = self.off
+        insn[1].phrase = self.src
 
 
-    def _ana_phrase_imm(self):
-        self.cmd[0].type = o_reg
-        self.cmd[0].dtyp = dt_dword
-        self.cmd[0].reg = self.dst
+    def _ana_phrase_imm(self, insn):
+        insn[0].type = o_reg
+        insn[0].dtyp = dt_dword
+        insn[0].reg = self.dst
         
-        self.cmd[1].type = o_phrase
-        self.cmd[1].dtyp = dt_dword
-        self.cmd[1].value = self.imm
+        insn[1].type = o_phrase
+        insn[1].dtyp = dt_dword
+        insn[1].value = self.imm
 
 
-    def emu(self):
-        Feature = self.cmd.get_canon_feature()
+    def ev_emu_insn(self, insn):
+        Feature = insn.get_canon_feature()
 
         if Feature & CF_JUMP:
-            dst_op_index = 0 if self.cmd.itype == 0x5 else 2
-            ua_add_cref(self.cmd[dst_op_index].offb, self.cmd[dst_op_index].addr, fl_JN)
-            QueueSet(Q_jumps, self.cmd.ea)
+            dst_op_index = 0 if insn.itype == 0x5 else 2
+            print("[ev_emu_insn] jump detected: 0x{:x} -> 0x{:x}".format(insn[dst_op_index].offb, insn[dst_op_index].addr))
+            insn.add_cref(insn[dst_op_index].offb, insn[dst_op_index].addr, fl_JN)
+            remember_problem(cvar.PR_JUMP, insn.ea) # PR_JUMP ignored?
+            # add cref here?
 
-        if self.cmd[0].type == o_displ or self.cmd[1].type == o_displ:
-            op_ind = 0 if self.cmd[0].type == o_displ else 1
-            ua_stkvar2(self.cmd[op_ind], self.cmd[op_ind].value, 1)
-            op_stkvar(self.cmd.ea, op_ind)
+        if insn[0].type == o_displ or insn[1].type == o_displ:
+            op_ind = 0 if insn[0].type == o_displ else 1
+            insn.create_stkvar(insn[op_ind], insn[op_ind].value, 1)
+            op_stkvar(insn.ea, op_ind)
             
+        # XXX: we don't want to make code references for calling eBPF helpers,
+        #      and probably have to do extra/other work for tail calls into other eBPF
+        #      programs. Later on look into treating eBPF helpers like syscalls, to symbolize them
         # if Feature & CF_CALL:
         #     ua_add_cref(self.cmd[0].offb, self.cmd[0].addr, fl_CN)
+        if Feature & CF_CALL:
+            # call into eBPF helper
+            # TODO: determine the difference between calling a helper, and calling another eBPF program
+            print("[ev_emu_insn] (0x{:x}) call offb: {} addr: {}".format(insn.ea, insn[0].offb, insn[0].addr))
 
-        flow = (Feature & CF_STOP == 0) and not self.cmd.itype == 0x5
+        # continue execution flow if not stop instruction, and not unconditional jump
+        flow = (Feature & CF_STOP == 0) and not insn.itype == 0x5
         
         if flow:
-            ua_add_cref(0, self.cmd.ea + self.cmd.size, fl_F)
+            insn.add_cref(insn.ea + insn.size, 0, fl_F)
+
         return True
 
-    def out(self):
-        cmd = self.cmd
+    def ev_out_insn(self, ctx):
+        cmd = ctx.insn
         ft = cmd.get_canon_feature()
-        buf = init_output_buffer(1024)
-        OutMnem(15)
+        buf = ctx.outbuf
+        ctx.out_mnem(15)
         
         if ft & CF_USE1:
-            out_one_operand(0)
+            ctx.out_one_operand(0)
         if ft & CF_USE2:
-            OutChar(',')
-            OutChar(' ')
-            out_one_operand(1)
+            ctx.out_char(',')
+            ctx.out_char(' ')
+            ctx.out_one_operand(1)
         if ft & CF_USE3:
-            OutChar(',')
-            OutChar(' ')
-            out_one_operand(2)
-        term_output_buffer()
+            ctx.out_char(',')
+            ctx.out_char(' ')
+            ctx.out_one_operand(2)
         cvar.gl_comm = 1
-        MakeLine(buf)
+        ctx.flush_outbuf()
 
-    def outop(self, op):
+    def ev_out_operand(self, ctx, op):
         if op.type == o_reg:
-            out_register(self.regNames[op.reg])
+            ctx.out_register(self.reg_names[op.reg])
         elif op.type == o_imm:
-            OutValue(op, OOFW_IMM)
+            ctx.out_value(op, OOFW_IMM)
         elif op.type in [o_near, o_mem]:
-            ok = out_name_expr(op, op.addr, BADADDR)
+            ok = ctx.out_name_expr(op, op.addr, BADADDR)
             if not ok:
+                # TODO: refactor this error case
                 out_tagon(COLOR_ERROR)
                 OutLong(op.addr, 16)
                 out_tagoff(COLOR_ERROR)
-                QueueMark(Q_noName, self.cmd.ea)
+                QueueMark(Q_noName, insn.ea)
                 
         elif op.type == o_phrase:
-            out_symbol('[')
-            OutValue(op, OOFW_IMM)
-            out_symbol(']')
+            ctx.out_symbol('[')
+            ctx.out_value(op, OOFW_IMM)
+            ctx.out_symbol(']')
             
         elif op.type == o_displ:
-            out_symbol('[')
-            out_register(self.regNames[op.phrase])
+            ctx.out_symbol('[')
+            ctx.out_register(self.reg_names[op.phrase])
             if op.value:
-                OutValue(op, OOFS_NEEDSIGN|OOFW_IMM)
-            out_symbol(']')
+                ctx.out_value(op, OOFS_NEEDSIGN|OOFW_IMM)
+            ctx.out_symbol(']')
         else:
             return False
         return True
