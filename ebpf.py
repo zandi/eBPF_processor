@@ -216,7 +216,6 @@ class EBPFProc(processor_t):
 
         self.OPCODES[self.opcode][1](insn)
         
-        # XXX TODO: don't we need to set this size? Where is this getting set?
         return insn.size
 
     def _ana_nop(self, insn):
@@ -286,8 +285,10 @@ class EBPFProc(processor_t):
         insn[2].dtype = dt_dword
 
     def _ana_regdisp_reg(self, insn):
+        # all cases of this instruction have a 16-bit offset
+        # eg: stxdw [dst+off], src
         insn[0].type = o_displ
-        insn[0].dtype = dt_dword
+        insn[0].dtype = dt_word
         insn[0].value = self.off
         insn[0].phrase = self.dst
 
@@ -296,12 +297,16 @@ class EBPFProc(processor_t):
         insn[1].reg = self.src
 
     def _ana_reg_regdisp(self, insn):
+        # note: certain instructions using a displacement are 16-bit, not 32-bit
+        # eg: ldxw dst, [src+off] has a 16-bit offset
+        # but instructions like ldinddw may not. But they seem less well documented, and perhaps
+        # only used in socket filters... Need to double-check how we disassemble those
         insn[0].type = o_reg
         insn[0].dtype = dt_dword
         insn[0].reg = self.dst
 
         insn[1].type = o_displ
-        insn[1].dtype = dt_dword
+        insn[1].dtype = dt_word # in most cases we've seen, off is 16-bit
         insn[1].value = self.off
         insn[1].phrase = self.src
 
@@ -329,8 +334,13 @@ class EBPFProc(processor_t):
         # TODO: see what stack emulation we need to do when operating on/with r10
         if insn[0].type == o_displ or insn[1].type == o_displ:
             op_ind = 0 if insn[0].type == o_displ else 1
-            insn.create_stkvar(insn[op_ind], insn[op_ind].value, 1)
-            op_stkvar(insn.ea, op_ind)
+            if may_create_stkvars():
+                # annoying problem: we can properly display 16-bit offsets in the out stage,
+                # but this step gets them highlighted in red as if they were invalid
+                # Disable until we can do this correctly
+                #insn.create_stkvar(insn[op_ind], insn[op_ind].value, STKVAR_VALID_SIZE)
+                #op_stkvar(insn.ea, op_ind)
+                pass
             
         # XXX: we don't want to make code references for calling eBPF helpers,
         #      and probably have to do extra/other work for tail calls into other eBPF
@@ -358,7 +368,7 @@ class EBPFProc(processor_t):
         buf = ctx.outbuf
         ctx.out_mnem(15)
 
-        print(f"[ev_out_insn] ea: {cmd.ea}")
+        print(f"[ev_out_insn] ea: {cmd.ea:#8x}")
         # TOOD: can we output helper name for call instructions here?
         # Or is that best done in a different way/elsewhere with IDA's api?
         
@@ -400,18 +410,23 @@ class EBPFProc(processor_t):
                 
         # TODO: handle signed phrase immediate
         elif op.type == o_phrase:
-            print(f"[ev_out_operand] phrase dtype: {op.dtype}")
+            print(f"[ev_out_operand] phrase dtype: {op.dtype:#8x} addr: {op.addr:#8x} value: {op.value:#8x}")
             ctx.out_symbol('[')
-            ctx.out_value(op, OOF_SIGNED|OOFW_IMM)
+            ctx.out_value(op, OOF_SIGNED|OOFW_IMM|OOFW_32)
             ctx.out_symbol(']')
             
         # TODO: handle signed displacement immediate
         elif op.type == o_displ:
-            print(f"[ev_out_operand] displacement dtype: {op.dtype}")
+            #print(f"[ev_out_operand] displacement dtype: {op.dtype:#8x} addr: {op.addr:#8x} value: {op.value:#8x}")
+            # note: dtype is dword, but it's not clear displacement offsets are actuall 32-bits wide, only 16?
             ctx.out_symbol('[')
             ctx.out_register(self.reg_names[op.phrase])
             if op.value:
-                ctx.out_value(op, OOFS_NEEDSIGN|OOF_SIGNED|OOFW_IMM)
+                if op.dtype == dt_word:
+                    ctx.out_value(op, OOFS_NEEDSIGN|OOF_SIGNED|OOFW_IMM|OOFW_16)
+                else:
+                    print("[ev_out_operand] unexpected displacement dtype: {op.dtype:#8x}")
+                    ctx.out_value(op, OOFS_NEEDSIGN|OOF_SIGNED|OOFW_IMM)
             ctx.out_symbol(']')
         else:
             return False
