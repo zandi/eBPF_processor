@@ -350,9 +350,10 @@ class EBPFProc(processor_t):
         if Feature & CF_CALL:
             # call into eBPF helper
             # TODO: determine the difference between calling a helper, and calling another eBPF program
-            helper_name = lookup_helper(insn[0].value)
-            print(f"[eb_emu_insn] call helper: {helper_name}")
+            #helper_name = lookup_helper(insn[0].value)
+            #print(f"[eb_emu_insn] call helper: {helper_name}")
             #print("[ev_emu_insn] (0x{:x}) call offb: {} addr: {} value: {}".format(insn.ea, insn[0].offb, insn[0].addr, insn[0].value))
+            pass
 
         # continue execution flow if not stop instruction, and not unconditional jump
         flow = (Feature & CF_STOP == 0) and not insn.itype == 0x5
@@ -373,6 +374,13 @@ class EBPFProc(processor_t):
         # Or is that best done in a different way/elsewhere with IDA's api?
         
         if ft & CF_USE1:
+            if ft & CF_CALL:
+                # TODO: catch exception here for unknown helper (need to add new helpers)
+                try:
+                    helper_name = lookup_helper(cmd[0].value)
+                    print(f"[ev_out_insn] calling helper {helper_name}")
+                except KeyError as e:
+                    print(f"[ev_out_insn] unknown bpf helper {cmd[0].value:#x}. {e}")
             ctx.out_one_operand(0)
         if ft & CF_USE2:
             ctx.out_char(',')
