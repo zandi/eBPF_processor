@@ -342,14 +342,12 @@ class EBPFProc(processor_t):
                 #op_stkvar(insn.ea, op_ind)
                 pass
             
-        # XXX: we don't want to make code references for calling eBPF helpers,
-        #      and probably have to do extra/other work for tail calls into other eBPF
-        #      programs. Later on look into treating eBPF helpers like syscalls, to symbolize them
+        # TODO: Determine difference between calling helper and tail-calling other BPF program
+        # TODO: use FLIRT/whatever to make nice annotations for helper calls, like we get for typical PEs
         # if Feature & CF_CALL:
         #     ua_add_cref(self.cmd[0].offb, self.cmd[0].addr, fl_CN)
         if Feature & CF_CALL:
             # call into eBPF helper
-            # TODO: determine the difference between calling a helper, and calling another eBPF program
             #helper_name = lookup_helper(insn[0].value)
             #print(f"[eb_emu_insn] call helper: {helper_name}")
             #print("[ev_emu_insn] (0x{:x}) call offb: {} addr: {} value: {}".format(insn.ea, insn[0].offb, insn[0].addr, insn[0].value))
@@ -369,18 +367,16 @@ class EBPFProc(processor_t):
         buf = ctx.outbuf
         ctx.out_mnem(15)
 
-        print(f"[ev_out_insn] ea: {cmd.ea:#8x}")
-        # TOOD: can we output helper name for call instructions here?
-        # Or is that best done in a different way/elsewhere with IDA's api?
+        #print(f"[ev_out_insn] ea: {cmd.ea:#8x}")
         
         if ft & CF_USE1:
             if ft & CF_CALL:
-                # TODO: catch exception here for unknown helper (need to add new helpers)
                 try:
+                    #TODO: This is probably better done elsewhere. Remove once that's figured out.
                     helper_name = lookup_helper(cmd[0].value)
                     print(f"[ev_out_insn] calling helper {helper_name}")
                 except KeyError as e:
-                    print(f"[ev_out_insn] unknown bpf helper {cmd[0].value:#x}. {e}")
+                    print(f"[ev_out_insn] unknown bpf helper {cmd[0].value:#x}. You need to update the processor's list of helper functions using a newer Linux kernel source (include/uapi/linux/bpf.h). {e}")
             ctx.out_one_operand(0)
         if ft & CF_USE2:
             ctx.out_char(',')
@@ -397,7 +393,7 @@ class EBPFProc(processor_t):
         if op.type == o_reg:
             ctx.out_register(self.reg_names[op.reg])
 
-        # TODO: handle signed immediate
+        # It appears that all uses of immediates are signed, hardcode treating them as signed.
         elif op.type == o_imm:
             if op.dtype == dt_qword:
                 ctx.out_value(op, OOF_SIGNED|OOFW_IMM|OOFW_64)
@@ -410,23 +406,22 @@ class EBPFProc(processor_t):
         elif op.type in [o_near, o_mem]:
             ok = ctx.out_name_expr(op, op.addr, BADADDR)
             if not ok:
-                # TODO: refactor this error case (when we hit it)
+                # TODO: refactor this error case (when we hit it; hasn't happened yet)
                 out_tagon(COLOR_ERROR)
                 OutLong(op.addr, 16)
                 out_tagoff(COLOR_ERROR)
                 QueueMark(Q_noName, insn.ea)
                 
-        # TODO: handle signed phrase immediate
+        # TODO: properly test this code. I don't think I've run across phrases yet, just displacements
         elif op.type == o_phrase:
             print(f"[ev_out_operand] phrase dtype: {op.dtype:#8x} addr: {op.addr:#8x} value: {op.value:#8x}")
             ctx.out_symbol('[')
             ctx.out_value(op, OOF_SIGNED|OOFW_IMM|OOFW_32)
             ctx.out_symbol(']')
             
-        # TODO: handle signed displacement immediate
+        # All uses of displacement operands I've found so far are 16-bit signed.
         elif op.type == o_displ:
             #print(f"[ev_out_operand] displacement dtype: {op.dtype:#8x} addr: {op.addr:#8x} value: {op.value:#8x}")
-            # note: dtype is dword, but it's not clear displacement offsets are actuall 32-bits wide, only 16?
             ctx.out_symbol('[')
             ctx.out_register(self.reg_names[op.phrase])
             if op.value:
