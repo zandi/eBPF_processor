@@ -328,9 +328,8 @@ class EBPFProc(processor_t):
         if Feature & CF_JUMP:
             dst_op_index = 0 if insn.itype == 0x5 else 2
             #print("[ev_emu_insn] jump detected: 0x{:x} -> 0x{:x}".format(insn[dst_op_index].offb, insn[dst_op_index].addr))
-            insn.add_cref(insn[dst_op_index].offb, insn[dst_op_index].addr, fl_JN)
+            insn.add_cref(insn[dst_op_index].addr, insn[dst_op_index].offb, fl_JN)
             remember_problem(cvar.PR_JUMP, insn.ea) # PR_JUMP ignored?
-            # add cref here?
 
         # TODO: see what stack emulation we need to do when operating on/with r10
         if insn[0].type == o_displ or insn[1].type == o_displ:
@@ -356,7 +355,7 @@ class EBPFProc(processor_t):
             #print("[ev_emu_insn] (0x{:x}) call offb: {} addr: {} value: {}".format(insn.ea, insn[0].offb, insn[0].addr, insn[0].value))
             pass
 
-        # continue execution flow if not stop instruction, and not unconditional jump
+        # continue execution flow if not stop instruction (call), and not unconditional jump
         flow = (Feature & CF_STOP == 0) and not insn.itype == 0x5
         
         if flow:
