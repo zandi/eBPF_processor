@@ -260,8 +260,15 @@ class EBPFProc(processor_t):
 
     def _ana_jmp(self, insn):
         insn[0].type = o_near
-        insn[0].addr = 8*self.off + insn.ea + 8
-        insn[0].dtype = dt_dword
+        # need to treat offset as a signed 16-bit integer to properly support backwards jumps,
+        # which are allowed in more recent eBPF
+        offset = ctypes.c_int16(self.off).value
+        if offset < 0:
+            print("[_ana_jmp] backwards jump")
+        insn[0].addr = 8*offset + insn.ea + 8
+        #print(f"[_ana_jmp] off: {self.off:#8x}, ea: {insn.ea:#8x}, addr: {insn[0].addr:#8x}")
+        # 0x05 case: signed 16-bit offset is the offset from PC to jump to
+        insn[0].dtype = dt_word # 16-bit offset
 
     def _ana_cond_jmp_reg_imm(self, insn):
         insn[0].type = o_reg
@@ -272,8 +279,11 @@ class EBPFProc(processor_t):
         insn[1].value = self.imm
         insn[1].dtype = dt_dword
         
+        offset = ctypes.c_int16(self.off).value
+        if offset < 0:
+            print("[_ana_cond_jmp_reg_imm] backwards jump")
         insn[2].type = o_near
-        insn[2].addr = 8 * self.off + insn.ea + 8
+        insn[2].addr = 8 * offset + insn.ea + 8
         insn[2].dtype = dt_dword
 
     def _ana_cond_jmp_reg_reg(self, insn):
@@ -285,8 +295,11 @@ class EBPFProc(processor_t):
         insn[1].dtype = dt_dword
         insn[1].reg = self.src
 
+        offset = ctypes.c_int16(self.off).value
+        if offset < 0:
+            print("[_ana_cond_jmp_reg_reg] backwards jump")
         insn[2].type = o_near
-        insn[2].addr = 8 * self.off + insn.ea + 8
+        insn[2].addr = 8 * offset + insn.ea + 8
         insn[2].dtype = dt_dword
 
     def _ana_regdisp_reg(self, insn):
