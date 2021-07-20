@@ -391,9 +391,9 @@ class EBPFProc(processor_t):
                 try:
                     #TODO: This is probably better done elsewhere. Remove once that's figured out.
                     helper_name = lookup_helper(cmd[0].value)
-                    print(f"[ev_out_insn] calling helper {helper_name}")
-                except KeyError as e:
-                    print(f"[ev_out_insn] unknown bpf helper {cmd[0].value:#x}. You need to update the processor's list of helper functions using a newer Linux kernel source (include/uapi/linux/bpf.h). {e}")
+                    #print(f"[ev_out_insn] calling helper {helper_name}")
+                except KeyError:
+                    print(f"[ev_out_insn] unknown bpf helper {cmd[0].value:#x}. You need to update the processor's list of helper functions using a newer Linux kernel source (include/uapi/linux/bpf.h).")
             ctx.out_one_operand(0)
         if ft & CF_USE2:
             ctx.out_char(',')
