@@ -159,6 +159,10 @@ class EBPFProc(processor_t):
             0x75:('jsge', self._ana_cond_jmp_reg_imm, CF_USE1 | CF_USE2 | CF_USE3 | CF_JUMP),
             0x7d:('jsge', self._ana_cond_jmp_reg_reg, CF_USE1 | CF_USE2 | CF_USE3 | CF_JUMP),
 
+            0xa5:('jlt', self._ana_cond_jmp_reg_imm, CF_USE1 | CF_USE2 | CF_USE3 | CF_JUMP),
+            # TODO: do we have to add any extra info here to handle differences with signed/unsigned conditional jumps?
+            0xc5:('jslt', self._ana_cond_jmp_reg_imm, CF_USE1 | CF_USE2 | CF_USE3 | CF_JUMP),
+
             0x85:('call', self._ana_call, CF_USE1|CF_CALL),            
 
             0x95:('ret', self._ana_nop, CF_STOP)
