@@ -423,11 +423,11 @@ class EBPFProc(processor_t):
         elif op.type in [o_near, o_mem]:
             ok = ctx.out_name_expr(op, op.addr, BADADDR)
             if not ok:
-                # TODO: refactor this error case (when we hit it; hasn't happened yet)
-                out_tagon(COLOR_ERROR)
-                OutLong(op.addr, 16)
-                out_tagoff(COLOR_ERROR)
-                QueueMark(Q_noName, insn.ea)
+                ctx.out_tagon(COLOR_ERROR)
+                ctx.out_long(op.addr, 16)
+                ctx.out_tagoff(COLOR_ERROR)
+                # TODO: figure out how to get this operand's instruction's address to remember this problem
+                #remember_problem(PR_NONAME, insn.ea)
                 
         # TODO: properly test this code. I don't think I've run across phrases yet, just displacements
         elif op.type == o_phrase:
