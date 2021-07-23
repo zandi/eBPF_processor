@@ -9,7 +9,7 @@
 from idaapi import *
 from idc import *
 
-# 'manually' crafted from include/uapi/linux/bpf.h header from kernel v4.20
+# 'manually' crafted from include/uapi/linux/bpf.h header from kernel v5.13
 # will need to periodically update this as new helpers are added.
 #
 # run just the preprocessor (gcc -E) on the snippet defining the `bpf_func_id` enum,
