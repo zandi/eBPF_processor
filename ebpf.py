@@ -22,6 +22,29 @@ helper_names = [ "BPF_FUNC_unspec", "map_lookup_elem", "map_update_elem", "map_d
 
 helper_id_to_name = {i: helper_names[i] for i in range(len(helper_names))}
 
+# BPF ALU defines from uapi/linux/bpf_common.h
+# Mainly using these for disassembling atomic instructions
+BPF_ADD = 0x00
+BPF_SUB = 0x10
+BPF_MUL = 0x20
+BPF_DIV = 0x30
+BPF_OR  = 0x40
+BPF_AND = 0x50
+BPF_LSH = 0x60
+BPF_RSH = 0x70
+BPF_NEG = 0x80
+BPF_MOD = 0x90
+BPF_XOR = 0xa0
+
+# and these atomic-specific constants from include/uapi/linux/bpf.h
+# /* atomic op type fields (stored in immediate) */
+BPF_FETCH = 0x01 # /* not an opcode on its own, used to build others */
+BPF_XCHG = (0xe0 | BPF_FETCH) # /* atomic exchange */
+BPF_CMPXCHG = (0xf0 | BPF_FETCH) # /* atomic compare-and-write */
+
+# being lazy, we only use this for atomic ops so far
+bpf_alu_string = {BPF_ADD: 'add', BPF_AND: 'and', BPF_OR: 'or', BPF_XOR: 'xor'}
+
 def dump_helpers():
     print("bpf helpers id -> name")
     for k, v in helper_id_to_name.items():
@@ -151,6 +174,18 @@ class EBPFProc(processor_t):
             0x6b:('stxh', self._ana_regdisp_reg, CF_USE1|CF_USE2),
             0x73:('stxb', self._ana_regdisp_reg, CF_USE1|CF_USE2),
             0x7b:('stxdw', self._ana_regdisp_reg, CF_USE1|CF_USE2),
+
+            # LOCK instructions
+            # These are handled a bit differently than typical instructions, see
+            # how the linux kernel disassembles the atomic instructions here
+            # https://elixir.bootlin.com/linux/v5.13.4/source/kernel/bpf/disasm.c#L163
+            # 0xdb: BPF_STX class, BPF_DW size, BPF_ATOMIC mode (imm indicates op type)
+            # The actual operation is in the immediate, so we need to analyze this
+            # to unpack the immediate into a 'virtual' 3rd operand, but this virtual
+            # 3rd operand isn't directly printed. We inspect it in the output phase specifically for
+            # these lock instructions to detemine which operation to print as
+            # an optional suffix with the mnemonic
+            0xdb:('lock', self._ana_regdisp_reg_atomic, CF_USE1|CF_USE2),
 
             # BRANCHES
             0x05:('ja', self._ana_jmp, CF_USE1|CF_JUMP),
@@ -334,6 +369,21 @@ class EBPFProc(processor_t):
         insn[1].dtype = dt_dword
         insn[1].reg = self.src
 
+    def _ana_regdisp_reg_atomic(self, insn):
+        insn[0].type = o_displ
+        insn[0].dtype = dt_word
+        insn[0].value = self.off
+        insn[0].phrase = self.dst
+
+        insn[1].type = o_reg
+        insn[1].dtype = dt_dword
+        insn[1].reg = self.src
+
+        # operation is conveyed by immediate value, but not literally used as an operand
+        insn[2].type = o_imm
+        insn[2].dtype = dt_dword
+        insn[2].value = self.imm
+
     def _ana_reg_regdisp(self, insn):
         # note: certain instructions using a displacement are 16-bit, not 32-bit
         # eg: ldxw dst, [src+off] has a 16-bit offset
@@ -402,9 +452,33 @@ class EBPFProc(processor_t):
         cmd = ctx.insn
         ft = cmd.get_canon_feature()
         buf = ctx.outbuf
-        ctx.out_mnem(15)
 
-        #print(f"[ev_out_insn] ea: {cmd.ea:#8x}")
+        # TODO: handle byteswap instruction suffix
+        if cmd.itype == 0xdb:
+            # special handling for atomic instruction, mnemonic is determined by immediate, not opcode
+            atomic_alu_ops = [BPF_ADD, BPF_AND, BPF_OR, BPF_XOR]
+            atomic_alu_fetch_ops = [op | BPF_FETCH for op in atomic_alu_ops]
+            if cmd.ops[2].type == o_imm:
+                # TODO: add size/width to disassembly?
+                if cmd.ops[2].value in atomic_alu_ops:
+                    # first case; 'lock' instruction we first came across
+                    ctx.out_mnem(15, f" {bpf_alu_string[cmd.ops[2].value]}")
+                elif cmd.ops[2].value in atomic_alu_fetch_ops:
+                    print("[ev_out_insn] untested case for 0xdb atomic instruction: ALU fetch op")
+                    ctx.out_mnem(15, f" fetch {bpf_alu_string[cmd.ops[2].value]}")
+                elif cmd.ops[2].value == BPF_CMPXCHG:
+                    print("[ev_out_insn] untested case for 0xdb atomic instruction: CMPXCHG")
+                    ctx.out_mnem(15, " cmpxchg")
+                elif cmd.ops[2].value == BPF_XCHG:
+                    print("[ev_out_insn] untested case for 0xdb atomic instruction: XCHG")
+                    ctx.out_mnem(15, " xchg")
+                else:
+                    print("[ev_out_insn] invalid operation type in immediate for 0xdb atomic instruction")
+                    pass
+            else:
+                print("[ev_out_insn] analysis error: 3rd parameter for atomic instruction must be o_imm. debug me!")
+        else:
+            ctx.out_mnem(15)
         
         if ft & CF_USE1:
             if ft & CF_CALL:
