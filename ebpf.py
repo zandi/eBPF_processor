@@ -119,6 +119,15 @@ class EBPFProc(processor_t):
 
             # TODO: ALU 32 bit opcodes
 
+            # Byteswap Instructions
+            # 1 register operand (destination), 1 immediate.
+            # imm == 16 | 32 | 64, indicating width
+            # TODO: output the proper mnemonic w/ optional suffix based on the immediate operand.
+            #     what should happen is that the immediate operand is used as the decimal
+            #     width modifier to produce 'be16', 'be32', etc.
+            0xd4:('le', self._ana_reg_imm, CF_USE1 | CF_USE2),
+            0xdc:('be', self._ana_reg_imm, CF_USE1 | CF_USE2),
+
             # MEM
             0x18:('lddw', self._ana_reg_imm, CF_USE1|CF_USE2),
             0x20:('ldaw', self._ana_phrase_imm, CF_USE1|CF_USE2),
@@ -227,6 +236,10 @@ class EBPFProc(processor_t):
         pass
     
     def _ana_reg_imm(self, insn):
+        #TODO: temporary debug output
+        if self.opcode == 0xd4 or self.opcode == 0xdc:
+            print(f"[_ana_reg_imm] byteswap instruction at {insn.ea:#8x} (refine handling/output of this)")
+
         insn[0].type = o_reg
         insn[0].dtype = dt_dword
         insn[0].reg = self.dst
