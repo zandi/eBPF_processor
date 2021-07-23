@@ -132,6 +132,7 @@ class EBPFProc(processor_t):
             0x18:('lddw', self._ana_reg_imm, CF_USE1|CF_USE2),
             0x20:('ldaw', self._ana_phrase_imm, CF_USE1|CF_USE2),
             0x28:('ldah', self._ana_phrase_imm, CF_USE1|CF_USE2),
+            # TODO: we aren't disassembling ldab correctly, fix this
             0x30:('ldab', self._ana_phrase_imm, CF_USE1|CF_USE2),
             0x38:('ldadw', self._ana_phrase_imm, CF_USE1|CF_USE2),
             0x40:('ldinw', self._ana_reg_regdisp, CF_USE1|CF_USE2),
@@ -210,6 +211,7 @@ class EBPFProc(processor_t):
         self.src = (registers >> 4) & 15
         self.dst = registers & 15
         
+        # TODO: should we just handle the 16-bit signed stuff here?
         self.off = insn.get_next_word()
 
         # if self.off & 0x8000:
@@ -245,6 +247,7 @@ class EBPFProc(processor_t):
         insn[0].reg = self.dst
 
         insn[1].type = o_imm
+        # special quad-word load
         if self.opcode == 0x18:
             insn[1].dtype = dt_qword
         else:
@@ -277,7 +280,8 @@ class EBPFProc(processor_t):
         # which are allowed in more recent eBPF
         offset = ctypes.c_int16(self.off).value
         if offset < 0:
-            print("[_ana_jmp] backwards jump")
+            #print("[_ana_jmp] backwards jump")
+            pass
         insn[0].addr = 8*offset + insn.ea + 8
         #print(f"[_ana_jmp] off: {self.off:#8x}, ea: {insn.ea:#8x}, addr: {insn[0].addr:#8x}")
         # 0x05 case: signed 16-bit offset is the offset from PC to jump to
@@ -294,7 +298,8 @@ class EBPFProc(processor_t):
         
         offset = ctypes.c_int16(self.off).value
         if offset < 0:
-            print("[_ana_cond_jmp_reg_imm] backwards jump")
+            #print("[_ana_cond_jmp_reg_imm] backwards jump")
+            pass
         insn[2].type = o_near
         insn[2].addr = 8 * offset + insn.ea + 8
         insn[2].dtype = dt_dword
@@ -310,7 +315,8 @@ class EBPFProc(processor_t):
 
         offset = ctypes.c_int16(self.off).value
         if offset < 0:
-            print("[_ana_cond_jmp_reg_reg] backwards jump")
+            #print("[_ana_cond_jmp_reg_reg] backwards jump")
+            pass
         insn[2].type = o_near
         insn[2].addr = 8 * offset + insn.ea + 8
         insn[2].dtype = dt_dword
@@ -444,7 +450,8 @@ class EBPFProc(processor_t):
                 
         # TODO: properly test this code. I don't think I've run across phrases yet, just displacements
         elif op.type == o_phrase:
-            print(f"[ev_out_operand] phrase dtype: {op.dtype:#8x} addr: {op.addr:#8x} value: {op.value:#8x}")
+            print(f"[ev_out_operand] {ctx.insn_ea:#8x} phrase dtype: {op.dtype:#8x} addr: {op.addr:#8x} value: {op.value:#8x} (we almost certainly aren't disassembling this correctly)")
+            #print(f"[ev_out_operand] ctx: {dir(ctx)}")
             ctx.out_symbol('[')
             ctx.out_value(op, OOF_SIGNED|OOFW_IMM|OOFW_32)
             ctx.out_symbol(']')
