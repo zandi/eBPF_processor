@@ -148,8 +148,8 @@ class EBPFProc(processor_t):
             # TODO: output the proper mnemonic w/ optional suffix based on the immediate operand.
             #     what should happen is that the immediate operand is used as the decimal
             #     width modifier to produce 'be16', 'be32', etc.
-            0xd4:('le', self._ana_reg_imm, CF_USE1 | CF_USE2),
-            0xdc:('be', self._ana_reg_imm, CF_USE1 | CF_USE2),
+            0xd4:('le', self._ana_reg_imm, CF_USE1),
+            0xdc:('be', self._ana_reg_imm, CF_USE1),
 
             # MEM
             0x18:('lddw', self._ana_reg_imm, CF_USE1|CF_USE2),
@@ -274,10 +274,6 @@ class EBPFProc(processor_t):
         pass
     
     def _ana_reg_imm(self, insn):
-        #TODO: temporary debug output
-        if self.opcode == 0xd4 or self.opcode == 0xdc:
-            print(f"[_ana_reg_imm] byteswap instruction at {insn.ea:#8x} (refine handling/output of this)")
-
         insn[0].type = o_reg
         insn[0].dtype = dt_dword
         insn[0].reg = self.dst
@@ -453,9 +449,16 @@ class EBPFProc(processor_t):
         ft = cmd.get_canon_feature()
         buf = ctx.outbuf
 
-        # TODO: handle byteswap instruction suffix
-        if cmd.itype == 0xdb:
-            # special handling for atomic instruction, mnemonic is determined by immediate, not opcode
+        # handle byteswap instruction suffix encoded in immediate, don't print immediate
+        if cmd.itype == 0xd4 or cmd.itype == 0xdc:
+            # directly use immediate as suffix in decimal
+            # analysis function sets second operand as immediate
+            if cmd.ops[1].type == o_imm:
+                ctx.out_mnem(15, f"{cmd.ops[1].value}")
+            else:
+                print("[ev_out_insn] analysis error: invalid 2nd operand type for byteswap instruction")
+        # special handling for atomic instruction, mnemonic is determined by immediate, not opcode
+        elif cmd.itype == 0xdb:
             atomic_alu_ops = [BPF_ADD, BPF_AND, BPF_OR, BPF_XOR]
             atomic_alu_fetch_ops = [op | BPF_FETCH for op in atomic_alu_ops]
             if cmd.ops[2].type == o_imm:
@@ -474,7 +477,6 @@ class EBPFProc(processor_t):
                     ctx.out_mnem(15, " xchg")
                 else:
                     print("[ev_out_insn] invalid operation type in immediate for 0xdb atomic instruction")
-                    pass
             else:
                 print("[ev_out_insn] analysis error: 3rd parameter for atomic instruction must be o_imm. debug me!")
         else:
