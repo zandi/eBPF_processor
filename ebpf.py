@@ -152,16 +152,24 @@ class EBPFProc(processor_t):
             0xdc:('be', self._ana_reg_imm, CF_USE1),
 
             # MEM
+            # special-case quad-word load
             0x18:('lddw', self._ana_reg_imm, CF_USE1|CF_USE2),
+
+            # Direct skb access loads (skb implied). Legacy cBPF, but we should still disassemble correctly
+            # linux kernel disassembles this like "r0 = *(u32 *)skb[26]"
+            # Here, r0 is the hardcoded destination and no source register is used. The immediate
+            # determines the offset into the skb
             0x20:('ldaw', self._ana_phrase_imm, CF_USE1|CF_USE2),
             0x28:('ldah', self._ana_phrase_imm, CF_USE1|CF_USE2),
-            # TODO: we aren't disassembling ldab correctly, fix this
             0x30:('ldab', self._ana_phrase_imm, CF_USE1|CF_USE2),
             0x38:('ldadw', self._ana_phrase_imm, CF_USE1|CF_USE2),
+
+            # indirect loads are basically in the same boat as the absolute loads above
             0x40:('ldinw', self._ana_reg_regdisp, CF_USE1|CF_USE2),
             0x48:('ldinh', self._ana_reg_regdisp, CF_USE1|CF_USE2),
             0x50:('ldinb', self._ana_reg_regdisp, CF_USE1|CF_USE2),
             0x58:('ldindw', self._ana_reg_regdisp, CF_USE1|CF_USE2),
+
             0x61:('ldxw', self._ana_reg_regdisp, CF_USE1|CF_USE2),
             0x69:('ldxh', self._ana_reg_regdisp, CF_USE1|CF_USE2),
             0x71:('ldxb', self._ana_reg_regdisp, CF_USE1|CF_USE2),
@@ -381,24 +389,28 @@ class EBPFProc(processor_t):
         insn[2].value = self.imm
 
     def _ana_reg_regdisp(self, insn):
-        # note: certain instructions using a displacement are 16-bit, not 32-bit
-        # eg: ldxw dst, [src+off] has a 16-bit offset
-        # but instructions like ldinddw may not. But they seem less well documented, and perhaps
-        # only used in socket filters... Need to double-check how we disassemble those
         insn[0].type = o_reg
         insn[0].dtype = dt_dword
         insn[0].reg = self.dst
 
         insn[1].type = o_displ
-        insn[1].dtype = dt_word # in most cases we've seen, off is 16-bit
+        insn[1].dtype = dt_word
         insn[1].value = self.off
         insn[1].phrase = self.src
 
+        # indirect skb loads have hardcoded r0 as destination, but use src + imm to offset
+        # into an implicit skb
+        if self.opcode in [0x40, 0x48, 0x50, 0x58]:
+            insn[0].reg = 0 # hardcoded r0 destination
+            insn[1].value = self.imm # use imm not offset for displacement
+            insn[1].dtype = dt_dword # imm are 32-bit, off are 16-bit.
 
+
+    # Only actually used for absolute loads, which are hardcoded to r0 destination
     def _ana_phrase_imm(self, insn):
         insn[0].type = o_reg
         insn[0].dtype = dt_dword
-        insn[0].reg = self.dst
+        insn[0].reg = 0 # hardcode destination to r0
         
         insn[1].type = o_phrase
         insn[1].dtype = dt_dword
@@ -525,22 +537,27 @@ class EBPFProc(processor_t):
                 # TODO: figure out how to get this operand's instruction's address to remember this problem
                 #remember_problem(PR_NONAME, insn.ea)
                 
-        # TODO: properly test this code. I don't think I've run across phrases yet, just displacements
         elif op.type == o_phrase:
-            print(f"[ev_out_operand] {ctx.insn_ea:#8x} phrase dtype: {op.dtype:#8x} addr: {op.addr:#8x} value: {op.value:#8x} (we almost certainly aren't disassembling this correctly)")
-            #print(f"[ev_out_operand] ctx: {dir(ctx)}")
+            # phrase operands are only encountered in absolute loads (eg: 0x20) which are implicitly
+            # in reference to a skb, which is how the linux kernel disassembles it
+            ctx.out_printf('skb') # text color is a bit off. fix later.
             ctx.out_symbol('[')
-            ctx.out_value(op, OOF_SIGNED|OOFW_IMM|OOFW_32)
+            ctx.out_value(op, OOF_SIGNED|OOFW_IMM|OOFW_32) # "OpDecimal" fails on this, figure out why & fix it.
             ctx.out_symbol(']')
             
         # All uses of displacement operands I've found so far are 16-bit signed.
         elif op.type == o_displ:
             #print(f"[ev_out_operand] displacement dtype: {op.dtype:#8x} addr: {op.addr:#8x} value: {op.value:#8x}")
+            if op.dtype == dt_dword:
+                # must be indirect load to be using 32-bit imm as phrase operand; skb implied
+                ctx.out_printf('skb')
             ctx.out_symbol('[')
             ctx.out_register(self.reg_names[op.phrase])
             if op.value:
                 if op.dtype == dt_word:
                     ctx.out_value(op, OOFS_NEEDSIGN|OOF_SIGNED|OOFW_IMM|OOFW_16)
+                elif op.dtype == dt_dword:
+                    ctx.out_value(op, OOFS_NEEDSIGN|OOF_SIGNED|OOFW_IMM|OOFW_32)
                 else:
                     print("[ev_out_operand] unexpected displacement dtype: {op.dtype:#8x}")
                     ctx.out_value(op, OOFS_NEEDSIGN|OOF_SIGNED|OOFW_IMM)
