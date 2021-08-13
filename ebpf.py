@@ -193,6 +193,7 @@ class EBPFProc(processor_t):
             # 3rd operand isn't directly printed. We inspect it in the output phase specifically for
             # these lock instructions to detemine which operation to print as
             # an optional suffix with the mnemonic
+            0xc3:('lock', self._ana_regdisp_reg_atomic, CF_USE1|CF_USE2),
             0xdb:('lock', self._ana_regdisp_reg_atomic, CF_USE1|CF_USE2),
 
             # BRANCHES
@@ -470,7 +471,7 @@ class EBPFProc(processor_t):
             else:
                 print("[ev_out_insn] analysis error: invalid 2nd operand type for byteswap instruction")
         # special handling for atomic instruction, mnemonic is determined by immediate, not opcode
-        elif cmd.itype == 0xdb:
+        elif cmd.itype == 0xdb or cmd.itype == 0xc3:
             atomic_alu_ops = [BPF_ADD, BPF_AND, BPF_OR, BPF_XOR]
             atomic_alu_fetch_ops = [op | BPF_FETCH for op in atomic_alu_ops]
             if cmd.ops[2].type == o_imm:
@@ -479,16 +480,16 @@ class EBPFProc(processor_t):
                     # first case; 'lock' instruction we first came across
                     ctx.out_mnem(15, f" {bpf_alu_string[cmd.ops[2].value]}")
                 elif cmd.ops[2].value in atomic_alu_fetch_ops:
-                    print("[ev_out_insn] untested case for 0xdb atomic instruction: ALU fetch op")
+                    print("[ev_out_insn] untested case for atomic instruction: ALU fetch op")
                     ctx.out_mnem(15, f" fetch {bpf_alu_string[cmd.ops[2].value]}")
                 elif cmd.ops[2].value == BPF_CMPXCHG:
-                    print("[ev_out_insn] untested case for 0xdb atomic instruction: CMPXCHG")
+                    print("[ev_out_insn] untested case for atomic instruction: CMPXCHG")
                     ctx.out_mnem(15, " cmpxchg")
                 elif cmd.ops[2].value == BPF_XCHG:
-                    print("[ev_out_insn] untested case for 0xdb atomic instruction: XCHG")
+                    print("[ev_out_insn] untested case for atomic instruction: XCHG")
                     ctx.out_mnem(15, " xchg")
                 else:
-                    print("[ev_out_insn] invalid operation type in immediate for 0xdb atomic instruction")
+                    print("[ev_out_insn] invalid operation type in immediate for atomic instruction")
             else:
                 print("[ev_out_insn] analysis error: 3rd parameter for atomic instruction must be o_imm. debug me!")
         else:
