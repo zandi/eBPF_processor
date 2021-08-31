@@ -55,6 +55,10 @@ https://github.com/vbpf/ebpf-samples,
 https://github.com/libbpf/libbpf-bootstrap, and from
 https://github.com/Gui774ume/ebpfkit
 
+A small selection of these eBPF ELF objects have been included in the samples
+directory for convenience. libbpf-bootstrap examples are very simple, ebpfkit
+samples are quite complicated.
+
 This should be a good starting point for making sure we can handle some
 reasonably real-world eBPF ELF files, but could easily miss more specialized
 programs that use less common instructions, or have a more customized loading
