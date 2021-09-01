@@ -85,13 +85,12 @@ def get_program_sections_with_address_ranges(elffile):
     (symtab, strtab) = get_symtab_strtab(elffile)
     cur_addr = 0
     for s in elffile.iter_sections():
-        if s['sh_type'] == 'SHT_NOBITS':
-            print("NOBITS section {i} breaks our assumptions")
-        if s['sh_type'] == 'SHT_PROGBITS':
+        if s['sh_type'] == 'SHT_PROGBITS' or s['sh_type'] == 'SHT_NOBITS':
             # let's try our hand at 'mapping' sections into memory similar to how IDA does.
             # it seems to just be linear starting at 0, and up to alignment
             # Also, no overlapping sections; if .text is 0-length, the next section doesn't start at 0 as well
             # This algorithm seems to match IDA, though IDA additionally creates an 'extern' section
+            # note: PROGBITS have bits to be loaded in. NOBITS don't have bits, the loader supplies 0 bytes.
             section_name = strtab.get_string(s['sh_name'])
             if section_name.startswith(".BTF"):
                 continue # skip BTF map; IDA doesn't map it
