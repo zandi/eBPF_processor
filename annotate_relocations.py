@@ -65,6 +65,26 @@ def get_maps(elffile):
             maps.append(sym)
     return maps
 
+# constants in libbpf-bootstrap binaries have GLOBAL binding and OBJECT type, and a section index pointing to the resident section (.bss/.rodata).
+# ebpfkit's constants (http_server_port, ebpfkit_pid) are different, with NOTYPE type and no certainly defined resident section
+# IDA appears to treat these like extern symbols, since they're referenced in the symbol table & relocations, but aren't given a section to reside in
+# name: 4228 -> ebpfkit_pid, info: Container({'bind': 'STB_GLOBAL', 'type': 'STT_NOTYPE'}), value:      0x0, size:      0x0, resident section: SHN_UNDEF
+def get_possible_globals(elffile):
+    (symtab, strtab) = get_symtab_strtab(elffile)
+
+    maps = get_maps(elffile)
+    map_names = [s.name for s in maps]
+
+    possible_globals = []
+
+    for s in symtab.iter_symbols():
+        if s['st_info']['bind'] == 'STB_GLOBAL' and (s['st_info']['type'] == 'STT_OBJECT' or s['st_info']['type'] == 'STT_NOTYPE'):
+            if s.name != 'LICENSE' and s.name not in map_names:
+                # guess: want global binding, type of 'object'
+                possible_globals.append(s)
+
+    return possible_globals
+
 # get program sections and their associated address ranges
 # This will make dealing with relocations easier, since we
 # can match a relocation section to its program section, and
@@ -123,19 +143,30 @@ def print_program_sections(elffile):
         section_name = strtab.get_string(s['sh_name'])
         print(f"\t[{base_addr:#8x}, {end_addr:#8x}): align {s['sh_addralign']:#8x} size {s['sh_size']:#8x} {section_name}")
 
-# print each location's address which references a map, and the map that it references
-def process_map_relocations(elffile):
+# Process map and global relocations.
+# Maps have a repeatable comment put on their definition, and a dref added to the relocation area
+# Globals are processed the same if their definition resides in another section.
+# If not, they're an extern symbol, and we just comment each individual without a xref.
+# This is a lazy hack because the IDA loader creates and extern section for these symbols, and I
+# just don't feel like replicating that addressing for adding those drefs right now
+def process_relocations(elffile):
     # first, get symbol/string tables, we'll use them a lot
     # next, collect info on which symbols are maps
     #  copy the whole symbol object, build other metadata/lookup objects
+    # next, collect info on symbols which may be globals
     # next, collect info on address ranges for program sections
     #  need section's name, and correlated address range. Other info currently irrelevant (align, etc.)
     #  name to match relocation sections to the program section they apply to, and address for offset + address calculation
     # next, iterate through relocation sections for each program section
     #  combine info on relocation's offset in its section, with the symbol relocation, to print address of map relocations
+    #  Additionally if a relocation is for a global, add a dref or comment as appropriate
 
     # get symbol & string tables
     (symtab, strtab) = get_symtab_strtab(elffile)
+
+    # get possible global symbols
+    possible_globals = get_possible_globals(elffile)
+    possible_global_names = [s.name for s in possible_globals]
 
     # get symbols which are maps
     maps = get_maps(elffile)
@@ -150,15 +181,27 @@ def process_map_relocations(elffile):
     # determine address for map definitions
     map_location_by_name = {}
     for sym in maps:
-        symstr = strtab.get_string(sym['st_name'])
         sec = elffile.get_section(sym['st_shndx'])
         (_, begin_addr, _) = program_sections_by_name[sec.name]
-        print(f"{begin_addr + sym['st_value']:#8x}: map '{symstr}'")
-        map_location_by_name[symstr] = begin_addr + sym['st_value']
-        idc.set_cmt(map_location_by_name[symstr], f"map {symstr}", True)
+        print(f"{begin_addr + sym['st_value']:#8x}: map '{sym.name}'")
+        map_location_by_name[sym.name] = begin_addr + sym['st_value']
+        idc.set_cmt(map_location_by_name[sym.name], f"map {sym.name}", True)
+
+    # determine address for global definitions, if they exist
+    global_location_by_name = {}
+    for sym in possible_globals:
+        if sym['st_shndx'] != 'SHN_UNDEF':
+            # definition exists in this binary. Easy case, use repeatable comment
+            sec = elffile.get_section(sym['st_shndx'])
+            (_, begin_addr, _) = program_sections_by_name[sec.name]
+            def_location = begin_addr + sym['st_value']
+            print(f"global definition location: {def_location:#8x}")
+            global_location_by_name[sym.name] = def_location
+            idc.set_cmt(def_location, f"{sym.name} (possible global)", True)
+    del(sym) # got bit by an annoying silly bug
 
     # get each program section's corresponding relocation section (if it exists)
-    # and process the relocations, looking only for map relocations
+    # and process the relocations, looking only for map or global relocations
     i = 0
     for section in elffile.iter_sections():
         if isinstance(section, RelocationSection):
@@ -182,12 +225,23 @@ def process_map_relocations(elffile):
                         if resident_section_ndx in map_section_ids:
                             # found a map relocation
                             resident_section = elffile.get_section(resident_section_ndx)
-                            symstr = strtab.get_string(symbol['st_name'])
                             # get base address of relocated section, apply relocation offset
                             (s, begin_addr, end_addr) = program_sections_by_name[relocated_section_name]
                             relocated_address = begin_addr + r['r_offset'] # note: subject to relocation type, may be calculated differently
-                            print(f"\tmap relocation at {relocated_address:#8x}: {symstr} -> {map_location_by_name[symstr]:#8x}")
-                            ida_xref.add_dref(relocated_address, map_location_by_name[symstr], ida_xref.dr_R)
+                            print(f"\tmap relocation at {relocated_address:#8x}: {symbol.name} -> {map_location_by_name[symbol.name]:#8x}")
+                            ida_xref.add_dref(relocated_address, map_location_by_name[symbol.name], ida_xref.dr_R)
+                        elif symbol.name in possible_global_names:
+                            # found possible global relocation
+                            (s, begin_addr, end_addr) = program_sections_by_name[relocated_section_name]
+                            relocated_address = begin_addr + r['r_offset'] # note: subject to relocation type, may be calculated differently
+                            print(f"\tpossible global relocation {relocated_address:#8x} -> {symbol.name}")
+                            # if there is a resident section, add dref and count on the repeated comment. If no section, extern, directly comment
+                            if symbol['st_shndx'] == 'SHN_UNDEF':
+                                # extern, just comment location
+                                idc.set_cmt(relocated_address, f"{symbol.name} (possible global)", False)
+                            else:
+                                # have a resident section, add data xref to link
+                                ida_xref.add_dref(relocated_address, global_location_by_name[symbol.name], ida_xref.dr_R)
                     else:
                         print(f"ERROR: relocation has no symbol?")
                 else:
@@ -200,12 +254,17 @@ def process_file(elf_filename):
         elffile = ELFFile(f)
 
         # just printing info
-        print("PROGBITS Sections with our assumed mapping:")
+        print("PROGBITS Sections with our assumed mapping")
+        print("  If this differs from how IDA maps sections, annotation will give incorrect results!")
         print_program_sections(elffile)
 
         # convert to actually creating xrefs and making comments
         print("Adding repeatable comments to map definitions, adding drefs for map relocations")
-        process_map_relocations(elffile)
+        print("Also adding repeatable comments to possible global definitions and drefs for their relocations")
+        print("  (If a possible global definition is an extern, we just comment the relocations, no xrefs are added)")
+        process_relocations(elffile)
+
+        print("Done. Happy Reversing!")
 
 
 source_file = ida_nalt.get_input_file_path()
