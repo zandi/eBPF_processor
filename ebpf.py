@@ -219,6 +219,7 @@ class EBPFProc(processor_t):
             0xc5:('jslt', self._ana_cond_jmp_reg_imm, CF_USE1 | CF_USE2 | CF_USE3 | CF_JUMP),
 
             0x85:('call', self._ana_call, CF_USE1|CF_CALL),            
+            0x8d:('callx', self._ana_callx, CF_USE1|CF_CALL),
 
             0x95:('ret', self._ana_nop, CF_STOP)
         }
@@ -314,6 +315,11 @@ class EBPFProc(processor_t):
         insn[0].type = o_imm
         insn[0].value = self.imm
         insn[0].dtype = dt_dword
+
+    def _ana_callx(self, insn):
+        insn[0].type = o_reg
+        insn[0].dtype = dt_dword
+        insn[0].reg = self.imm
 
     def _ana_jmp(self, insn):
         insn[0].type = o_near
