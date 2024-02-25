@@ -198,7 +198,10 @@ def process_relocations(elffile):
             print(f"global definition location: {def_location:#8x}")
             global_location_by_name[sym.name] = def_location
             idc.set_cmt(def_location, f"{sym.name} (possible global)", True)
-    del(sym) # got bit by an annoying silly bug
+    try:
+        del(sym)
+    except NameError:
+        pass
 
     # get each program section's corresponding relocation section (if it exists)
     # and process the relocations, looking only for map or global relocations
